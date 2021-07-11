@@ -1,8 +1,6 @@
 #!/bin/bash
-#DATAROOT=${1:-'clevr_567_train'}
-#PORT=${2:-8077}
-DATAROOT='../datasets/new_clevr_2'
-PORT=8012
+DATAROOT=${1:-'clevr_567_train'}
+PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_without_gan.py --dataroot $DATAROOT --n_scenes 1000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'clevr_567' \

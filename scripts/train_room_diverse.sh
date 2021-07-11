@@ -1,8 +1,6 @@
 #!/bin/bash
-#DATAROOT=${1:-'room_diverse_train'}
-#PORT=${2:-8077}
-DATAROOT='../datasets/1200shape_50bg'
-PORT=8016
+DATAROOT=${1:-'room_diverse_train'}
+PORT=${2:-8077}
 python -m visdom.server -p $PORT &>/dev/null &
 python train_with_gan.py --dataroot $DATAROOT --n_scenes 5000 --n_img_each_scene 4  \
     --checkpoints_dir 'checkpoints' --name 'room_diverse' \
