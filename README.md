@@ -1,7 +1,7 @@
 # Unsupervised Discovery of Object Radiance Fields
-Hong-Xing Yu, Leonidas J. Guibas, Jiajun Wu
+by [Hong-Xing Yu](https://kovenyu.com), [Leonidas J. Guibas](https://geometry.stanford.edu/member/guibas/) and [Jiajun Wu](https://jiajunwu.com/) from Stanford University.
 
-Stanford University
+![teaser](teaser.gif)
 
 arXiv link:
 
