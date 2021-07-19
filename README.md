@@ -18,7 +18,7 @@ conda activate uorf-3090
 or install the packages listed therein. Please make sure you have NVIDIA drivers supporting CUDA 11.0, or modify the version specifictions in `environment.yml`.
 
 ## Data and model
-Please download datasets and models [here](https://office365stanford-my.sharepoint.com/:f:/r/personal/koven_stanford_edu/Documents/uorf_data_model?csf=1&web=1&e=q7oN63).
+Please download datasets and models [here](https://office365stanford-my.sharepoint.com/:f:/g/personal/koven_stanford_edu/Et9SOVcOxOdHilaqfq4Y3PsBsiPGW6NGdbMd2i3tRSB5Dg?e=WRrXIh).
 
 ## Evaluation
 We assume you have a GPU.
