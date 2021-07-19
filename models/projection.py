@@ -7,13 +7,6 @@ class Projection(object):
     def __init__(self, focal_ratio=(350. / 320., 350. / 240.),
                  near=5, far=16, frustum_size=[128, 128, 128], device='cpu',
                  nss_scale=7, render_size=(64, 64)):
-        """
-        we have four coord systems here
-        world: origin at scene center. absolute units (e.g. meter), reflected in extrinsic matrix (translation)
-        camera: world system translated by extrinsic matrix
-        frustum (XY in pixel space; this is for sampling): [0, 0] to frustum_size
-        volume: [0, 0, 0] to feat_vol_size
-        """
         self.render_size = render_size
         self.device = device
         self.focal_ratio = focal_ratio
@@ -38,10 +31,6 @@ class Projection(object):
         self.spixel2cam = intrinsic_mat.inverse().to(self.device)
 
     def construct_frus_coor(self):
-        """
-        input:
-            depth: if not None, it should be 1xHxW, real (unnormalized) depth values
-        """
         x = torch.arange(self.frustum_size[0])
         y = torch.arange(self.frustum_size[1])
         z = torch.arange(self.frustum_size[2])
@@ -64,9 +53,6 @@ class Projection(object):
         construct a sampling frustum coor in NSS space, and generate z_vals/ray_dir
         input:
             cam2world: Nx4x4, N: #images to render
-            depth: if not None, should be Nx1xHxW, real (unnormalized) depth values;
-                    if use_weights, then it is weights NxHxWxD
-            z_vals_coarse: NxHxWxD
         output:
             frus_nss_coor: (NxDxHxW)x3
             z_vals: (NxHxW)xD
@@ -104,11 +90,6 @@ class Projection(object):
             z_vals = z_vals.flatten(start_dim=1, end_dim=3)  # 4x(Nx(H/s)x(W/s))xD
         else:
             z_vals = z_vals.view(N, W, H, D).permute([0, 2, 1, 3]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xD
-        """
-		z_vals will be used to scale sigma for volume rendering and compute depth map.
-		So its value should be consistent across scenes.
-		we here normalize it to [0,1] by near and far
-		"""
 
         # construct cam coord for ray_dir
         x = torch.arange(self.frustum_size[0])

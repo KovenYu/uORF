@@ -30,7 +30,7 @@ class uorfNoGanModel(BaseModel):
         parser.add_argument('--attn_iter', type=int, default=3, help='Number of refine iteration in slot attention')
         parser.add_argument('--warmup_steps', type=int, default=1000, help='Warmup steps')
         parser.add_argument('--nss_scale', type=float, default=7, help='Scale of the scene, related to camera matrix')
-        parser.add_argument('--render_size', type=int, default=64)
+        parser.add_argument('--render_size', type=int, default=64, help='Shape of patch to render each forward process. Must be Frustum_size/(2^N) where N=0,1,..., Smaller values cost longer time but require less GPU memory.')
         parser.add_argument('--supervision_size', type=int, default=64)
         parser.add_argument('--obj_scale', type=float, default=4.5, help='Scale for locality on foreground objects')
         parser.add_argument('--n_freq', type=int, default=5, help='how many increased freq?')

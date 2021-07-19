@@ -107,7 +107,7 @@ class Decoder(nn.Module):
         2. for each slot, decode all points from coord and slot feature
         input:
             sampling_coor_bg: Px3, P = #points, typically P = NxDxHxW
-            sampling_coor_fg: (K-1)xPx3, has been rotated to obj coord
+            sampling_coor_fg: (K-1)xPx3
             z_slots: KxC, K: #slots, C: #feat_dim
         """
         K, C = z_slots.shape
