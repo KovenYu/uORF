@@ -3,7 +3,7 @@ by [Hong-Xing Yu](https://kovenyu.com), [Leonidas J. Guibas](https://geometry.st
 
 ![teaser](teaser.gif)
 
-arXiv link:
+arXiv link: [https://arxiv.org/abs/2107.07905](https://arxiv.org/abs/2107.07905)
 
 Project website: [https://kovenyu.com/uorf](https://kovenyu.com/uorf)
 
@@ -47,7 +47,14 @@ It can take even longer for less powerful GPUs (e.g., ~10 days on a titan RTX fo
 During training, visualization will be sent to [localhost:8077](http://localhost:8077).
 
 ## Bibtex
-TODO after arxiv
+```
+@article{yu2021unsupervised
+  author    = {Yu, Hong-Xing and Guibas, Leonidas J. and Wu, Jiajun},
+  title     = {Unsupervised Discovery of Object Radiance Fields},
+  journal   = {arXiv preprint arXiv:2107.07905},
+  year      = {2021},
+}
+```
 
 ## Acknowledgement
 Our code framework is adapted from Jun-Yan Zhu's [CycleGAN](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix).
