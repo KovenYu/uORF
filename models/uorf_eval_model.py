@@ -140,7 +140,7 @@ class uorfEvalModel(BaseModel):
             H_, W_ = H // scale, W // scale
             sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
             sampling_coor_fg_ = torch.matmul(nss2cam0_azi[None, ...], sampling_coor_fg_[..., None])  # (K-1)xPx3x1
-            sampling_coor_fg_ = sampling_coor_fg_.squeeze(-1)  # (K-1)xPx3, now in respective object coord
+            sampling_coor_fg_ = sampling_coor_fg_.squeeze(-1)  # (K-1)xPx3
             sampling_coor_bg_ = frus_nss_coor_  # Px3
 
             raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
