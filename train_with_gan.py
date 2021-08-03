@@ -39,6 +39,8 @@ if __name__ == '__main__':
             if epoch < opt.gan_train_epoch:
                 # print('iter {}, training attn'.format(i))
                 layers, avg_grad = model.optimize_parameters(opt.display_grad, epoch)   # calculate loss functions, get gradients, update network weights
+                if opt.display_grad and total_iters % opt.display_freq == 0:
+                    visualizer.display_grad(layers, avg_grad)
                 if opt.custom_lr and opt.stage == 'coarse':
                     model.update_learning_rate()    # update learning rates at the beginning of every step
             else:  # adv loss in

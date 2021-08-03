@@ -84,11 +84,10 @@ class MultiscenesDataset(BaseDataset):
                 assert False
             pose = torch.tensor(pose, dtype=torch.float32)
             azi_path = pose_path.replace('_RT.txt', '_azi_rot.txt')
-            try:
+            if self.opt.fixed_locality:
+                azi_rot = np.eye(3)  # not used; placeholder
+            else:
                 azi_rot = np.loadtxt(azi_path)
-            except FileNotFoundError:
-                print('filenotfound error: {}'.format(azi_path))
-                assert False
             azi_rot = torch.tensor(azi_rot, dtype=torch.float32)
             depth_path = path.replace('.png', '_depth.npy')
             if os.path.isfile(depth_path):

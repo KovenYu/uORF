@@ -40,6 +40,7 @@ class uorfManipModel(BaseModel):
         parser.add_argument('--frustum_size', type=int, default=128, help='Size of rendered images')
         parser.add_argument('--near_plane', type=float, default=6)
         parser.add_argument('--far_plane', type=float, default=20)
+        parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -78,7 +79,7 @@ class uorfManipModel(BaseModel):
         self.netSlotAttention = networks.init_net(
             SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale), gpu_ids=self.gpu_ids, init_type='xavier')
+                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
         self.L2_loss = torch.nn.MSELoss()
         self.LPIPS_loss = lpips.LPIPS().cuda()
 
@@ -102,7 +103,8 @@ class uorfManipModel(BaseModel):
         """
         self.x = input['img_data'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
-        self.cam2world_azi = input['azi_rot'].to(self.device)  # used for easier implementation of locality
+        if not self.opt.fixed_locality:
+            self.cam2world_azi = input['azi_rot'].to(self.device)
         self.image_paths = input['paths']
         if 'masks' in input:
             self.gt_masks = input['masks']
@@ -116,7 +118,7 @@ class uorfManipModel(BaseModel):
     def forward(self, epoch=0):
         """Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
         dev = self.x[0:1].device
-        nss2cam0_azi = self.cam2world_azi[0:1].inverse()  # 1x3x3
+        nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
         feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
@@ -142,11 +144,9 @@ class uorfManipModel(BaseModel):
             h, w = divmod(j, scale)
             H_, W_ = H // scale, W // scale
             sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-            sampling_coor_fg_ = torch.matmul(nss2cam0_azi[None, ...], sampling_coor_fg_[..., None])  # (K-1)xPx3x1
-            sampling_coor_fg_ = sampling_coor_fg_.squeeze(-1)  # (K-1)xPx3
             sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-            raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+            raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
             raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
             masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
             unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -201,11 +201,9 @@ class uorfManipModel(BaseModel):
             H_, W_ = H // scale, W // scale
             sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1).clone()  # (K-1)xPx3
             sampling_coor_fg_[move_slot_idx] = sampling_coor_fg_[move_slot_idx] - self.movement / self.opt.nss_scale
-            sampling_coor_fg_ = torch.matmul(nss2cam0_azi[None, ...], sampling_coor_fg_[..., None])  # (K-1)xPx3x1
-            sampling_coor_fg_ = sampling_coor_fg_.squeeze(-1)  # (K-1)xPx3
             sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-            raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+            raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
             raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
             masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
             unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])
@@ -251,11 +249,9 @@ class uorfManipModel(BaseModel):
             h, w = divmod(j, scale)
             H_, W_ = H // scale, W // scale
             sampling_coor_fg_ = frus_nss_coor_[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-            sampling_coor_fg_ = torch.matmul(nss2cam0_azi[None, ...], sampling_coor_fg_[..., None])  # (K-1)xPx3x1
-            sampling_coor_fg_ = sampling_coor_fg_.squeeze(-1)  # (K-1)xPx3
             sampling_coor_bg_ = frus_nss_coor_  # Px3
 
-            raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+            raws_, masked_raws_, unmasked_raws_, masks_ = self.netDecoder(sampling_coor_bg_, sampling_coor_fg_, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
             raws_ = raws_.view([N, D, H_, W_, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
             masked_raws_ = masked_raws_.view([K, N, D, H_, W_, 4])
             unmasked_raws_ = unmasked_raws_.view([K, N, D, H_, W_, 4])

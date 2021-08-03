@@ -47,6 +47,7 @@ class uorfNoGanModel(BaseModel):
         parser.add_argument('--coarse_epoch', type=int, default=600)
         parser.add_argument('--near_plane', type=float, default=6)
         parser.add_argument('--far_plane', type=float, default=20)
+        parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -90,7 +91,7 @@ class uorfNoGanModel(BaseModel):
         self.netSlotAttention = networks.init_net(
             SlotAttention(num_slots=opt.num_slots, in_dim=z_dim, slot_dim=z_dim, iters=opt.attn_iter), gpu_ids=self.gpu_ids, init_type='normal')
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer,
-                                                    locality_ratio=opt.obj_scale/opt.nss_scale), gpu_ids=self.gpu_ids, init_type='xavier')
+                                                    locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
 
         if self.isTrain:  # only defined during training time
             self.optimizer = optim.Adam(chain(
@@ -120,7 +121,8 @@ class uorfNoGanModel(BaseModel):
         """
         self.x = input['img_data'].to(self.device)
         self.cam2world = input['cam2world'].to(self.device)
-        self.cam2world_azi = input['azi_rot'].to(self.device)  # used for easier implementation of locality
+        if not self.opt.fixed_locality:
+            self.cam2world_azi = input['azi_rot'].to(self.device)
 
     def forward(self, epoch=0):
         """Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
@@ -128,7 +130,7 @@ class uorfNoGanModel(BaseModel):
         self.loss_recon = 0
         self.loss_perc = 0
         dev = self.x[0:1].device
-        nss2cam0_azi = self.cam2world_azi[0:1].inverse()  # 1x3x3
+        nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
         # Encoding images
         feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
@@ -161,12 +163,10 @@ class uorfNoGanModel(BaseModel):
             self.z_vals, self.ray_dir = z_vals, ray_dir
 
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
-        sampling_coor_fg = torch.matmul(nss2cam0_azi[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
-        sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
         sampling_coor_bg = frus_nss_coor  # Px3
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])

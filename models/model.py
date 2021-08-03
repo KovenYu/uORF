@@ -62,7 +62,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7):
+    def __init__(self, n_freq=5, input_dim=33+64, z_dim=64, n_layers=3, locality=True, locality_ratio=4/7, fixed_locality=False):
         """
         freq: raised frequency
         input_dim: pos emb dim + slot dim
@@ -70,11 +70,13 @@ class Decoder(nn.Module):
         n_layers: #layers before/after skip connection.
         locality: if True, for each obj slot, clamp sigma values to 0 outside obj_scale.
         locality_ratio: if locality, what value is the boundary to clamp?
+        fixed_locality: if True, compute locality in world space instead of in transformed view space
         """
         super().__init__()
         self.n_freq = n_freq
         self.locality = locality
         self.locality_ratio = locality_ratio
+        self.fixed_locality = fixed_locality
         self.out_ch = 4
         before_skip = [nn.Linear(input_dim, z_dim), nn.ReLU(True)]
         after_skip = [nn.Linear(z_dim+input_dim, z_dim), nn.ReLU(True)]
@@ -101,7 +103,7 @@ class Decoder(nn.Module):
         self.b_before = nn.Sequential(*before_skip)
         self.b_after = nn.Sequential(*after_skip)
 
-    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots):
+    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform):
         """
         1. pos emb by Fourier
         2. for each slot, decode all points from coord and slot feature
@@ -109,9 +111,21 @@ class Decoder(nn.Module):
             sampling_coor_bg: Px3, P = #points, typically P = NxDxHxW
             sampling_coor_fg: (K-1)xPx3
             z_slots: KxC, K: #slots, C: #feat_dim
+            fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
         """
         K, C = z_slots.shape
         P = sampling_coor_bg.shape[0]
+
+        if self.fixed_locality:
+            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+            sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # (K-1)xPx4
+            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
+            sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # (K-1)xPx3
+        else:
+            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
+            sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
+            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+
         z_bg = z_slots[0:1, :]  # 1xC
         z_fg = z_slots[1:, :]  # (K-1)xC
         query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
@@ -130,7 +144,6 @@ class Decoder(nn.Module):
         fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
         fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
         if self.locality:
-            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
             fg_raw_shape[outsider_idx] *= 0
         fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
 
