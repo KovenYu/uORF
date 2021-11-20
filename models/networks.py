@@ -814,6 +814,35 @@ class Attention(nn.Module):
 
 
 from torch.optim.lr_scheduler import  LambdaLR
+
+# Wrap lambda into class to make it pickle
+class lr_exp_decay_schedule_with_warmup:
+    def __init__(self, num_warmup_steps, num_decay_steps=2e5, decay_base=0.5, n_start_decay=0):
+        self.num_warmup_steps = num_warmup_steps
+        self.num_decay_steps = num_decay_steps
+        self.decay_base = decay_base
+        self.n_start_decay = n_start_decay
+    
+    def __call__(self, current_step: int):
+        if current_step < self.num_warmup_steps:
+            rate = float(current_step) / float(max(1, self.num_warmup_steps))
+        else:
+            if current_step < self.num_warmup_steps + self.n_start_decay:
+                rate = 1
+            else:
+                rate = decay_base **(float(current_step - self.num_warmup_steps - self.n_start_decay) / float(self.num_decay_steps))
+        return rate
+
+def lr_lambda_exp_decay_schedule_with_warmup(current_step: int):
+    if current_step < num_warmup_steps:
+        rate = float(current_step) / float(max(1, num_warmup_steps))
+    else:
+        if current_step < num_warmup_steps + n_start_decay:
+            rate = 1
+        else:
+            rate = decay_base **(float(current_step - num_warmup_steps - n_start_decay) / float(num_decay_steps))
+    return rate
+
 def get_exp_decay_schedule_with_warmup(optimizer, num_warmup_steps, num_decay_steps=2e5,
                                        decay_base=0.5, last_epoch=-1, n_start_decay=0):
     """
@@ -831,24 +860,27 @@ def get_exp_decay_schedule_with_warmup(optimizer, num_warmup_steps, num_decay_st
     Return:
         :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
     """
-    def lr_lambda(current_step: int):
-        if current_step < num_warmup_steps:
-            rate = float(current_step) / float(max(1, num_warmup_steps))
-        else:
-            if current_step < num_warmup_steps + n_start_decay:
-                rate = 1
-            else:
-                rate = decay_base **(float(current_step - num_warmup_steps - n_start_decay) / float(num_decay_steps))
-        return rate
+    return LambdaLR(
+        optimizer, 
+        lr_exp_decay_schedule_with_warmup(num_warmup_steps, num_decay_steps, decay_base, n_start_decay), 
+        last_epoch)
 
-    return LambdaLR(optimizer, lr_lambda, last_epoch)
 
+class lr_exp_decay_schedule:
+    def __init__(self, num_decay_steps=2e5, decay_base=0.5):
+        self.num_decay_steps = num_decay_steps
+        self.decay_base = decay_base
+    
+    def __call__(self, current_step: int):
+        return self.decay_base **(float(current_step) / float(self.num_decay_steps))
+
+def lr_lambda_exp_decay_schedule(current_step: int):
+    return decay_base **(float(current_step) / float(num_decay_steps))
 
 def get_exp_decay_schedule(optimizer, num_decay_steps=1e5,
                                        decay_base=0.5, last_epoch=-1):
-    def lr_lambda(current_step: int):
-        return decay_base **(float(current_step) / float(num_decay_steps))
-    return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+    return LambdaLR(optimizer, lr_exp_decay_schedule(num_decay_steps, decay_base), last_epoch)
 
 if __name__ == '__main__':
     num_decay_steps = 200000
