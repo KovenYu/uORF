@@ -157,7 +157,13 @@ class Decoder(nn.Module):
         masked_raws = unmasked_raws * masks
         raws = masked_raws.sum(dim=0)
 
-        return raws, masked_raws, unmasked_raws, masks
+            raws_out.append(raws)
+            masked_raws_out.append(masked_raws)
+            unmasked_raws_out.append(unmasked_raws)
+            masks_out.append(masks)
+
+        return torch.stack(raws_out), torch.stack(masked_raws_out), \
+            torch.stack(unmasked_raws_out), torch.stack(masks_out)
 
 
 class SlotAttention(nn.Module):
