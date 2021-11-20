@@ -40,14 +40,14 @@ class Encoder(nn.Module):
         output:
             feature_map: BxCxHxW
         """
-        W, H = x.shape[3], x.shape[2]
+        B, C, H, W = x.shape
         X = torch.linspace(-1, 1, W)
         Y = torch.linspace(-1, 1, H)
         y1_m, x1_m = torch.meshgrid([Y, X])
         x2_m, y2_m = 2 - x1_m, 2 - y1_m  # Normalized distance in the four direction
-        pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).to(x.device).unsqueeze(0)  # 1x4xHxW
+        pixel_emb = torch.stack([x1_m, x2_m, y1_m, y2_m]).type_as(x).unsqueeze(0).repeat(B, 1, 1, 1)  # Bx4xHxW
         x_ = torch.cat([x, pixel_emb], dim=1)
-
+        
         if self.bottom:
             x_down_0 = self.enc_down_0(x_)
             x_down_1 = self.enc_down_1(x_down_0)
@@ -103,7 +103,7 @@ class Decoder(nn.Module):
         self.b_before = nn.Sequential(*before_skip)
         self.b_after = nn.Sequential(*after_skip)
 
-    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform):
+    def forward(self, batched_sampling_coor_bg, batched_sampling_coor_fg, batched_z_slots, batched_fg_transform):
         """
         1. pos emb by Fourier
         2. for each slot, decode all points from coord and slot feature
@@ -113,49 +113,68 @@ class Decoder(nn.Module):
             z_slots: KxC, K: #slots, C: #feat_dim
             fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
         """
-        K, C = z_slots.shape
-        P = sampling_coor_bg.shape[0]
 
-        if self.fixed_locality:
-            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
-            sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # (K-1)xPx4
-            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
-            sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # (K-1)xPx3
-        else:
-            sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
-            sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
-            outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+        B, K, C = batched_z_slots.shape
+        _, P, _ = batched_sampling_coor_bg.shape
 
-        z_bg = z_slots[0:1, :]  # 1xC
-        z_fg = z_slots[1:, :]  # (K-1)xC
-        query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
-        input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
 
-        sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
-        query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
-        z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
-        input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
+        raws_out = []
+        masked_raws_out = []
+        unmasked_raws_out = []
+        masks_out = []
 
-        tmp = self.b_before(input_bg)
-        bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
-        tmp = self.f_before(input_fg)
-        tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # ((K-1)xP)x64
-        latent_fg = self.f_after_latent(tmp)  # ((K-1)xP)x64
-        fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
-        fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
-        if self.locality:
-            fg_raw_shape[outsider_idx] *= 0
-        fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
+        # Because whole code was written for single gpu
+        # This is a quick hack to take batch dim into account
+        for i in range(B):
+            # Get single batch
+            sampling_coor_bg = batched_sampling_coor_bg[i]
+            sampling_coor_fg = batched_sampling_coor_fg[i]
+            z_slots = batched_z_slots[i]
+            fg_transform = batched_fg_transform[i]
 
-        all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # KxPx4
-        raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
-        masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
-        raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
-        raw_sigma = raw_masks
+            K, C = z_slots.shape
+            P = sampling_coor_bg.shape[0]
+            
+            if self.fixed_locality:
+                outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
+                sampling_coor_fg = torch.cat([sampling_coor_fg, torch.ones_like(sampling_coor_fg[:, :, 0:1])], dim=-1)  # (K-1)xPx4
+                sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx4x1
+                sampling_coor_fg = sampling_coor_fg.squeeze(-1)[:, :, :3]  # (K-1)xPx3
+            else:
+                sampling_coor_fg = torch.matmul(fg_transform[None, ...], sampling_coor_fg[..., None])  # (K-1)xPx3x1
+                sampling_coor_fg = sampling_coor_fg.squeeze(-1)  # (K-1)xPx3
+                outsider_idx = torch.any(sampling_coor_fg.abs() > self.locality_ratio, dim=-1)  # (K-1)xP
 
-        unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
-        masked_raws = unmasked_raws * masks
-        raws = masked_raws.sum(dim=0)
+            z_bg = z_slots[0:1, :]  # 1xC
+            z_fg = z_slots[1:, :]  # (K-1)xC
+            query_bg = sin_emb(sampling_coor_bg, n_freq=self.n_freq)  # Px60, 60 means increased-freq feat dim
+            input_bg = torch.cat([query_bg, z_bg.expand(P, -1)], dim=1)  # Px(60+C)
+
+            sampling_coor_fg_ = sampling_coor_fg.flatten(start_dim=0, end_dim=1)  # ((K-1)xP)x3
+            query_fg_ex = sin_emb(sampling_coor_fg_, n_freq=self.n_freq)  # ((K-1)xP)x60
+            z_fg_ex = z_fg[:, None, :].expand(-1, P, -1).flatten(start_dim=0, end_dim=1)  # ((K-1)xP)xC
+            input_fg = torch.cat([query_fg_ex, z_fg_ex], dim=1)  # ((K-1)xP)x(60+C)
+
+            tmp = self.b_before(input_bg)
+            bg_raws = self.b_after(torch.cat([input_bg, tmp], dim=1)).view([1, P, self.out_ch])  # Px5 -> 1xPx5
+            tmp = self.f_before(input_fg)
+            tmp = self.f_after(torch.cat([input_fg, tmp], dim=1))  # ((K-1)xP)x64
+            latent_fg = self.f_after_latent(tmp)  # ((K-1)xP)x64
+            fg_raw_rgb = self.f_color(latent_fg).view([K-1, P, 3])  # ((K-1)xP)x3 -> (K-1)xPx3
+            fg_raw_shape = self.f_after_shape(tmp).view([K - 1, P])  # ((K-1)xP)x1 -> (K-1)xP, density
+            if self.locality:
+                fg_raw_shape[outsider_idx] *= 0
+            fg_raws = torch.cat([fg_raw_rgb, fg_raw_shape[..., None]], dim=-1)  # (K-1)xPx4
+
+            all_raws = torch.cat([bg_raws, fg_raws], dim=0)  # KxPx4
+            raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
+            masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
+            raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
+            raw_sigma = raw_masks
+
+            unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
+            masked_raws = unmasked_raws * masks
+            raws = masked_raws.sum(dim=0)
 
             raws_out.append(raws)
             masked_raws_out.append(masked_raws)
@@ -292,17 +311,16 @@ def raw2outputs(raw, z_vals, rays_d, render_mask=False):
         depth_map: [num_rays]. Estimated distance to object.
     """
     raw2alpha = lambda x, y: 1. - torch.exp(-x * y)
-    device = raw.device
 
     dists = z_vals[..., 1:] - z_vals[..., :-1]
-    dists = torch.cat([dists, torch.tensor([1e-2], device=device).expand(dists[..., :1].shape)], -1)  # [N_rays, N_samples]
+    dists = torch.cat([dists, torch.tensor([1e-2]).type_as(z_vals).expand(dists[..., :1].shape)], -1)  # [N_rays, N_samples]
 
     dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
 
     rgb = raw[..., :3]
 
     alpha = raw2alpha(raw[..., 3], dists)  # [N_rays, N_samples]
-    weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:,:-1]
+    weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).type_as(z_vals), 1. - alpha + 1e-10], -1), -1)[:,:-1]
 
     rgb_map = torch.sum(weights[..., None] * rgb, -2)  # [N_rays, 3]
 
