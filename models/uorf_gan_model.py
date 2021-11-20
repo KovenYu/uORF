@@ -142,14 +142,32 @@ class uorfGanModel(BaseModel):
         dev = self.x[0:1].device
         nss2cam0 = self.cam2world[0:1].inverse() if self.opt.fixed_locality else self.cam2world_azi[0:1].inverse()
 
-        # Encoding images
+        print('batch size', self.x.shape, self.x[0:1].shape)
+        print('cam2world shape', self.cam2world.shape)
+
+        # Encoding images, H & W flattened into one dimension (N)
         feature_map = self.netEncoder(F.interpolate(self.x[0:1], size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
         feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxNxC
 
+        print('feat size', feat.shape)
+
+        # K Slots
+        # N flattened image H×W 64×64 
+
+        ############
+        # AB HIER ALLES SINGLE GPU
+        ############
+
         # Slot Attention
         z_slots, attn = self.netSlotAttention(feat)  # 1xKxC, 1xKxN
-        z_slots, attn = z_slots.squeeze(0), attn.squeeze(0)  # KxC, KxN
+        print('z_slots shape', z_slots.shape)
+        print('attn shape', attn.shape)
+
+        # Do not squeeze z_slots
+        # z_slots, attn = z_slots.squeeze(0), attn.squeeze(0)  # KxC, KxN
+        attn = attn.squeeze(0)
         K = attn.shape[0]
+
 
         cam2world = self.cam2world
         N = cam2world.shape[0]
@@ -172,8 +190,25 @@ class uorfGanModel(BaseModel):
             x = self.x[:, :, H_idx:H_idx + rs, W_idx:W_idx + rs]
             self.z_vals, self.ray_dir = z_vals, ray_dir
 
+        print(f"Projection shapes:\n "
+                f"\t-frus_nss_coor: {frus_nss_coor.shape}\n"
+                f"\t-z_vals: {z_vals.shape}\n"
+                f"\t-ray_dir: {ray_dir.shape}\n")
+
+        # P = number of samples per ray × H × W
         sampling_coor_fg = frus_nss_coor[None, ...].expand(K - 1, -1, -1)  # (K-1)xPx3
         sampling_coor_bg = frus_nss_coor  # Px3
+
+        # Put points in first dimension, such that
+        # in a multi gpu setting the points are split up and not the slots
+        # sampling_coor_fg = sampling_coor_fg.permute(1, 0, 2)
+        print("K in gan model", sampling_coor_fg.shape[0], '==', z_slots.shape[0], '- 1,  device = ', z_slots.device)
+
+        print(f"Before shapes:\n "
+                f"\t-sampling_coor_fg: {sampling_coor_fg.shape}\n"
+                f"\t-sampling_coor_bg: {sampling_coor_bg.shape}\n"
+                f"\t-z_slots: {z_slots.shape}\n"
+                f"\t-fg_transform: {nss2cam0.shape}\n")
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
