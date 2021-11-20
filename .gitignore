@@ -1,1 +1,5 @@
 .idea
+lightning_logs
+checkpoints
+slurm-*
+__pycache__
