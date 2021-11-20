@@ -27,20 +27,20 @@ class Projection(object):
                                       [0, focal_y, bias_y, 0],
                                       [0, 0, 1, 0],
                                       [0, 0, 0, 1]])
-        self.cam2spixel = intrinsic_mat.to(self.device)
-        self.spixel2cam = intrinsic_mat.inverse().to(self.device)
+        self.cam2spixel = intrinsic_mat
+        self.spixel2cam = intrinsic_mat.inverse()
 
     def construct_frus_coor(self):
         x = torch.arange(self.frustum_size[0])
         y = torch.arange(self.frustum_size[1])
         z = torch.arange(self.frustum_size[2])
         x, y, z = torch.meshgrid([x, y, z])
-        x_frus = x.flatten().to(self.device)
-        y_frus = y.flatten().to(self.device)
-        z_frus = z.flatten().to(self.device)
+        x_frus = x.flatten()
+        y_frus = y.flatten()
+        z_frus = z.flatten()
         # project frustum points to vol coord
         depth_range = torch.linspace(self.near, self.far, self.frustum_size[2])
-        z_cam = depth_range[z_frus].to(self.device)
+        z_cam = depth_range[z_frus]
 
         x_unnorm_pix = x_frus * z_cam
         y_unnorm_pix = y_frus * z_cam
@@ -61,10 +61,10 @@ class Projection(object):
         N = cam2world.shape[0]
         W, H, D = self.frustum_size
         pixel_coor = self.construct_frus_coor()
-        frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float())  # 4x(WxHxD)
+        frus_cam_coor = torch.matmul(self.spixel2cam, pixel_coor.float()).type_as(cam2world)  # 4x(WxHxD)
 
-        frus_world_coor = torch.matmul(cam2world, frus_cam_coor)  # Nx4x(WxHxD)
-        frus_nss_coor = torch.matmul(self.world2nss, frus_world_coor)  # Nx4x(WxHxD)
+        frus_world_coor = torch.matmul(cam2world, frus_cam_coor).type_as(cam2world)  # Nx4x(WxHxD)
+        frus_nss_coor = torch.matmul(self.world2nss.type_as(cam2world), frus_world_coor)  # Nx4x(WxHxD)
         frus_nss_coor = frus_nss_coor.view(N, 4, W, H, D).permute([0, 4, 3, 2, 1])  # NxDxHxWx4
         frus_nss_coor = frus_nss_coor[..., :3]  # NxDxHxWx3
         scale = H // self.render_size[0]
@@ -97,7 +97,7 @@ class Projection(object):
         X, Y = torch.meshgrid([x, y])
         Z = torch.ones_like(X)
         pix_coor = torch.stack([Y, X, Z]).to(self.device)  # 3xHxW, 3=xyz
-        cam_coor = torch.matmul(self.spixel2cam[:3, :3], pix_coor.flatten(start_dim=1).float())  # 3x(HxW)
+        cam_coor = torch.matmul(self.spixel2cam[:3, :3], pix_coor.flatten(start_dim=1).float()).type_as(cam2world)  # 3x(HxW)
         ray_dir = cam_coor.permute([1, 0])  # (HxW)x3
         ray_dir = ray_dir.view(H, W, 3)
         if partitioned:
