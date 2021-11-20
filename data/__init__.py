@@ -102,13 +102,13 @@ class CustomDatasetDataLoader():
                 break
             yield data
 
-    def filter_objects(self, n):
-        self.dataset.filter_objects(n)
-        self.dataloader = torch.utils.data.DataLoader(
-            self.dataset,
-            batch_size=self.opt.batch_size,
-            shuffle=not self.opt.serial_batches,
-            num_workers=int(self.opt.num_threads),
-            collate_fn = self.collate_fn)
+    # def filter_objects(self, n):
+    #     self.dataset.filter_objects(n)
+    #     self.dataloader = torch.utils.data.DataLoader(
+    #         self.dataset,
+    #         batch_size=self.opt.batch_size,
+    #         shuffle=not self.opt.serial_batches,
+    #         num_workers=int(self.opt.num_threads),
+    #         collate_fn = self.collate_fn)
 
 
