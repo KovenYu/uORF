@@ -20,23 +20,34 @@ class MultiscenesDataset(BaseDataset):
         parser.add_argument('--mask_size', type=int, default=128)
         return parser
 
-    def __init__(self, opt):
+    def __init__(self, opt, is_train = None):
         """Initialize this dataset class.
 
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
+            is_train -- None: use opt.dataroot, True: use opt.train_dataroot, False: use opt.test_dataroot
         """
         BaseDataset.__init__(self, opt)
+
+        # Custom extension to enable train and test simultaneously
+        self.is_train = is_train
+        if is_train is None:
+            dataroot = opt.dataroot
+        elif is_train:
+            dataroot = opt.train_dataroot
+        else:
+            dataroot = opt.test_dataroot
+
         self.n_scenes = opt.n_scenes
         self.n_img_each_scene = opt.n_img_each_scene
-        image_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*.png')))  # root/00000_sc000_az00_el00.png
-        mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask.png')))
-        fg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_moving.png')))
-        moved_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_moved.png')))
-        bg_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_bg.png')))
-        bg_in_mask_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_mask_for_providing_bg.png')))
-        changed_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_changed.png')))
-        bg_in_filenames = sorted(glob.glob(os.path.join(opt.dataroot, '*_providing_bg.png')))
+        image_filenames = sorted(glob.glob(os.path.join(dataroot, '*.png')))  # root/00000_sc000_az00_el00.png
+        mask_filenames = sorted(glob.glob(os.path.join(dataroot, '*_mask.png')))
+        fg_mask_filenames = sorted(glob.glob(os.path.join(dataroot, '*_mask_for_moving.png')))
+        moved_filenames = sorted(glob.glob(os.path.join(dataroot, '*_moved.png')))
+        bg_mask_filenames = sorted(glob.glob(os.path.join(dataroot, '*_mask_for_bg.png')))
+        bg_in_mask_filenames = sorted(glob.glob(os.path.join(dataroot, '*_mask_for_providing_bg.png')))
+        changed_filenames = sorted(glob.glob(os.path.join(dataroot, '*_changed.png')))
+        bg_in_filenames = sorted(glob.glob(os.path.join(dataroot, '*_providing_bg.png')))
         changed_filenames_set, bg_in_filenames_set = set(changed_filenames), set(bg_in_filenames)
         bg_mask_filenames_set, bg_in_mask_filenames_set = set(bg_mask_filenames), set(bg_in_mask_filenames)
         image_filenames_set, mask_filenames_set = set(image_filenames), set(mask_filenames)
@@ -68,7 +79,7 @@ class MultiscenesDataset(BaseDataset):
         """
         scene_idx = index
         scene_filenames = self.scenes[scene_idx]
-        if self.opt.isTrain and not self.opt.no_shuffle:
+        if self.is_train and not self.opt.no_shuffle:
             filenames = random.sample(scene_filenames, self.n_img_each_scene)
         else:
             filenames = scene_filenames[:self.n_img_each_scene]

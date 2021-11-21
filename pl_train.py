@@ -1,16 +1,15 @@
 import pytorch_lightning as pl
+from custom.options import parse_custom_options
 
-from data import create_dataset
 from options.train_options import TrainOptions
+from pytorch_lightning.callbacks import LearningRateMonitor
 
 from custom.model import uorfGanModel
 from custom.data import MultiscenesDataModule
 
-
-
 if __name__=='__main__':
     print('Parsing options...')
-    opt = TrainOptions().parse()   # get training options
+    opt = parse_custom_options()
 
     pl.seed_everything(opt.seed)
 
@@ -19,10 +18,13 @@ if __name__=='__main__':
 
     print('Creating module...')
     module = uorfGanModel(opt)
+
+    lr_monitor = LearningRateMonitor(logging_interval='step')
     trainer = pl.Trainer(
-        gpus=2,
+        gpus=opt.gpus,
         strategy="ddp_spawn", # ddp_spawn
-        max_epochs=opt.niter + opt.niter_decay + 1)
+        max_epochs=opt.niter + opt.niter_decay + 1,
+        callbacks=[lr_monitor])
 
     print('Start training...')
     trainer.fit(module, dataset)

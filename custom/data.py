@@ -10,7 +10,11 @@ class MultiscenesDataModule(pl.LightningDataModule):
         self.opt = opt
     
     def prepare_data(self):
-        self.dataset = MultiscenesDataset(self.opt)
+        print('Fetching train dataset ...')
+        self.train_dataset = MultiscenesDataset(self.opt, is_train=True)
+
+        print('Fetching test dataset...')
+        self.test_dataset = MultiscenesDataset(self.opt, is_train=False)
     
     @staticmethod
     def collate_fn_batches(data):
@@ -36,11 +40,22 @@ class MultiscenesDataModule(pl.LightningDataModule):
            
 
     def train_dataloader(self):
-        print("Set batch size", self.opt.batch_size)
         return DataLoader(
-            self.dataset,
+            self.train_dataset,
             batch_size=self.opt.batch_size,
             shuffle=not self.opt.serial_batches,
             num_workers=int(self.opt.num_threads),
-            collate_fn = self.collate_fn_batches
+            collate_fn = self.collate_fn_batches,
+            persistent_workers=True
+        )
+
+    
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=1,
+            shuffle=not self.opt.serial_batches,
+            num_workers=int(self.opt.num_threads),
+            collate_fn = self.collate_fn_batches,
+            persistent_workers=True
         )
