@@ -1,15 +1,18 @@
 from itertools import chain
-import time
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch import nn, optim
 from torchvision.transforms.transforms import Normalize
+from custom.visualization import make_average_gradient_plot
 
 from models.model import Decoder, Discriminator, Encoder, SlotAttention, d_logistic_loss, d_r1_loss, g_nonsaturating_loss, get_perceptual_net, raw2outputs, toggle_grad
 from models.networks import get_scheduler, init_weights
 from models.projection import Projection
 
+from pytorch_lightning.loggers import TensorBoardLogger
+
+from util.util import tensor2im
 
 class uorfGanModel(pl.LightningModule):
 
@@ -114,8 +117,8 @@ class uorfGanModel(pl.LightningModule):
             # (NxDxHxW)x3, (NxHxW)xD, (NxHxW)x3
 
             # Bring back batch dimension
-            frus_nss_coor = frus_nss_coor.view([B, S*D*H*W, 3])
-            z_vals, ray_dir = z_vals.view([B, S*H*W, D]), ray_dir.view([B, S*H*W, 3])
+            frus_nss_coor = frus_nss_coor.view([B, S, D, H, W, 3])
+            z_vals, ray_dir = z_vals.view([B, S, H, W, D]), ray_dir.view([B, S, H, W, 3])
 
             # Cut out part of image
             start_range = self.opt.frustum_size_fine - self.opt.render_size
@@ -128,8 +131,8 @@ class uorfGanModel(pl.LightningModule):
             ray_dir_ = ray_dir[..., H_idx:H_idx + rs, W_idx:W_idx + rs, :]
             imgs = imgs[..., H_idx:H_idx + rs, W_idx:W_idx + rs]
 
-            z_vals, ray_dir = z_vals_.flatten(1, 3), ray_dir_.flatten(1, 3)
             frus_nss_coor = frus_nss_coor_.flatten(1, 4)
+            z_vals, ray_dir = z_vals_.flatten(1, 3), ray_dir_.flatten(1, 3)
 
         # Repeat sampling coordinates for each object (K-1 objects, one background), P = S*D*H*W
         sampling_coor_fg = frus_nss_coor[:, None, ...].expand(-1, K - 1, -1, -1)  # B×(K-1)xPx3
@@ -142,16 +145,16 @@ class uorfGanModel(pl.LightningModule):
             "z_slots", z_slots.shape, "\n",
             "nss2cam0", nss2cam0.shape, "\n")
         """
-        
+
         # Run decoder
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
-        raws, masked_raws, unmasked_raws, _ = self.netDecoder(
+        raws, masked_raws, unmasked_raws, maks = self.netDecoder(
             sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0)  
         # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4,  (Kx(NxDxHxW)x1 <- masks, not needed)
 
         raws = raws.view([B, N, D, H, W, 4]).permute([0, 1, 3, 4, 2, 5]).flatten(start_dim=1, end_dim=3)  # B×(NxHxW)xDx4
-        # masked_raws = masked_raws.view([B, K, N, D, H, W, 4])
-        # unmasked_raws = unmasked_raws.view([B, K, N, D, H, W, 4])
+        masked_raws = masked_raws.view([B, K, N, D, H, W, 4])
+        unmasked_raws = unmasked_raws.view([B, K, N, D, H, W, 4])
         
         rgb_maps = []
         for i in range(B):
@@ -161,7 +164,7 @@ class uorfGanModel(pl.LightningModule):
         rgb_map_out = torch.stack(rgb_maps)
 
         img_rendered = rgb_map_out.view(B, N, H, W, 3).permute([0, 1, 4, 2, 3])  # B×Nx3xHxW
-        return imgs, img_rendered
+        return imgs, img_rendered, (masked_raws, unmasked_raws, z_vals, ray_dir, attn)
 
 
     def on_epoch_start(self) -> None:
@@ -177,6 +180,59 @@ class uorfGanModel(pl.LightningModule):
             uorf_scheduler.step()
 
 
+    def log_visualizations(self, imgs: torch.Tensor, imgs_reconstructed: torch.Tensor, raw_data) -> None:
+
+        # only tensorboard supported
+        if self.trainer.is_global_zero and isinstance(self.logger, TensorBoardLogger):
+            tensorboard = self.logger.experiment
+
+            # Average gradients
+            avg_grad_plot = make_average_gradient_plot(chain(
+                self.netEncoder.parameters(), 
+                self.netSlotAttention.parameters(), 
+                self.netDecoder.parameters())
+                )
+
+            tensorboard.add_figure(
+                'gradients',
+                avg_grad_plot
+            )
+
+            # Compute visuals from batched raw data
+            b_masked_raws, b_unmasked_raws, b_z_vals, b_ray_dir, b_attn = raw_data
+            B, K, N, D, H, W, _ = b_masked_raws.shape
+            
+            # only display first batch
+            for k in range(K):
+                # Render images from masked raws
+                raws = b_masked_raws[0][k]
+                raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+                z_vals, ray_dir = b_z_vals[0], b_ray_dir[0]
+                rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
+                rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+                imgs_recon = rendered * 2 - 1
+
+                for i in range(N):
+                    tensorboard.add_image(f"masked_{k}_{i}", tensor2im(imgs_recon[i]))
+                
+                # Render images from unmasked raws
+                raws = b_unmasked_raws[0][k]
+                raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+                z_vals, ray_dir = b_z_vals[0], b_ray_dir[0]
+                rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
+                rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+                imgs_recon = rendered * 2 - 1
+
+                for i in range(N):
+                    tensorboard.add_image(f"unmasked_{k}_{i}", tensor2im(imgs_recon[i]))
+
+                    # Render reconstructed images (whole scene)
+                    tensorboard.add_image(f"recon_{k}_{i}", tensor2im(imgs_recon[i]))
+
+                # Render attention
+                tensorboard.add_image(f"attn_{k}", tensor2im(b_attn[0][k]*2 - 1 ))
+
+
     def training_step(self, batch, batch_idx):
         if self.current_epoch < self.opt.gan_train_epoch:
             self.optimize_uorf(batch)
@@ -186,6 +242,7 @@ class uorfGanModel(pl.LightningModule):
                 uorf_scheduler.step()
         
         else:
+            # Train generator (uORF)
             if batch_idx % 2 == 0:
                 if self.current_epoch < self.opt.gan_train_epoch + self.opt.gan_in:
                     return
@@ -195,53 +252,59 @@ class uorfGanModel(pl.LightningModule):
                 if self.opt.custom_lr and self.opt.stage == 'coarse':
                     uorf_scheduler, _ = self.lr_schedulers()
                     uorf_scheduler.step()
+            # Train discriminator
+            else:
+                self.optimize_discriminator(batch, batch_idx)
+
+                _, disc_scheduler = self.lr_schedulers()
+                disc_scheduler.step()
 
 
     def optimize_uorf(self, batch):
         # Forward batch
+        imgs, imgs_rendered, raw_data = self(batch)
+        imgs_reconstructed = imgs_rendered * 2 - 1
 
-        with torch.autograd.set_detect_anomaly(True):
-            imgs, imgs_rendered = self(batch)
-            imgs_reconstructed = imgs_rendered * 2 - 1
+        # Combine batches and number of imgs in scene 
+        B, S, C, H, W = imgs.shape
+        imgs = imgs.view(B*S, C, H, W)
+        imgs_rendered = imgs_rendered.view(B*S, C, H, W)
+        imgs_reconstructed = imgs_reconstructed.view(B*S, C, H, W)
 
-            # Combine batches and number of imgs in scene 
-            B, S, C, H, W = imgs.shape
-            imgs = imgs.view(B*S, C, H, W)
-            imgs_rendered = imgs_rendered.view(B*S, C, H, W)
-            imgs_reconstructed = imgs_reconstructed.view(B*S, C, H, W)
+        # Adverserial loss
+        d_fake = self.netDisc(imgs_reconstructed)
+        loss_gan = self.weight_gan * g_nonsaturating_loss(d_fake)
 
-            # Adverserial loss
-            d_fake = self.netDisc(imgs_reconstructed)
-            loss_gan = self.weight_gan * g_nonsaturating_loss(d_fake)
+        # Reconstruction loss
+        loss_recon = self.L2_loss(imgs_reconstructed, imgs)
 
-            # Reconstruction loss
-            loss_recon = self.L2_loss(imgs_reconstructed, imgs)
+        # Perceptual loss
+        x_norm, rendered_norm = self.vgg_norm((imgs + 1) / 2), self.vgg_norm(imgs_rendered)
+        rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
+        loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
 
-            # Perceptual loss
-            x_norm, rendered_norm = self.vgg_norm((imgs + 1) / 2), self.vgg_norm(imgs_rendered)
-            rendered_feat, x_feat = self.perceptual_net(rendered_norm), self.perceptual_net(x_norm)
-            loss_perc = self.weight_percept * self.L2_loss(rendered_feat, x_feat)
-
-            loss = loss_gan + loss_recon + loss_perc
+        loss = loss_gan + loss_recon + loss_perc
 
         uorf_optimizer, _ = self.optimizers()
         uorf_optimizer.zero_grad()
         self.manual_backward(loss)
         uorf_optimizer.step()
 
-        """
-        self.log('losses', {
-            'loss': loss.cpu().item(), 
-            'loss_gan': loss_gan.cpu().item(), 
-            'loss_recon': loss_recon.cpu().item(),
-            'loss_percept': loss_perc.cpu().item(),
-            }, prog_bar=True)
-            """
+        if self.trainer.is_global_zero:
+            self.log('losses', {
+                'loss': loss.cpu().item(), 
+                'loss_gan': loss_gan.cpu().item(), 
+                'loss_recon': loss_recon.cpu().item(),
+                'loss_percept': loss_perc.cpu().item(),
+                }, prog_bar=True)
+
+            if self.global_step % self.opt.display_freq == 0:
+                self.log_visualizations(raw_data=raw_data)
 
 
     def optimize_discriminator(self, batch, batch_idx):
         # Forward batch
-        imgs, imgs_rendered = self(batch)
+        imgs, imgs_rendered, _ = self(batch)
         imgs_reconstructed = imgs_rendered * 2 - 1
 
         toggle_grad(self.netDisc, True)
