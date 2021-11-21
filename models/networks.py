@@ -830,7 +830,8 @@ class lr_exp_decay_schedule_with_warmup:
             if current_step < self.num_warmup_steps + self.n_start_decay:
                 rate = 1
             else:
-                rate = decay_base **(float(current_step - self.num_warmup_steps - self.n_start_decay) / float(self.num_decay_steps))
+                rate = self.decay_base **(float(current_step - self.num_warmup_steps - self.n_start_decay) / float(self.num_decay_steps))
+
         return rate
 
 def lr_lambda_exp_decay_schedule_with_warmup(current_step: int):
