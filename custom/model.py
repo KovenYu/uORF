@@ -87,7 +87,7 @@ class uorfGanModel(pl.LightningModule):
         feature_map = self.netEncoder(F.interpolate(
             first_imgs, size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
         feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxFxC
-        
+
         z_slots, attn = self.netSlotAttention(feat)  # B×K×C, B×K×F
         K = z_slots.shape[1]
 
@@ -164,7 +164,8 @@ class uorfGanModel(pl.LightningModule):
         rgb_map_out = torch.stack(rgb_maps)
 
         img_rendered = rgb_map_out.view(B, N, H, W, 3).permute([0, 1, 4, 2, 3])  # B×Nx3xHxW
-        return imgs, img_rendered, (masked_raws, unmasked_raws, z_vals, ray_dir, attn)
+        return imgs, img_rendered, \
+            (masked_raws.detach(), unmasked_raws.detach(), z_vals, ray_dir, attn.detach())
 
 
     def on_epoch_start(self) -> None:
@@ -172,6 +173,16 @@ class uorfGanModel(pl.LightningModule):
         self.netDecoder.locality = self.current_epoch < self.opt.no_locality_epoch
         self.weight_percept = self.opt.weight_percept if self.current_epoch >= self.opt.percept_in else 0
         self.weight_gan = self.opt.weight_gan if self.current_epoch >= self.opt.gan_train_epoch + self.opt.gan_in else 0
+
+        if self.trainer.is_global_zero:
+            self.log('training_schedule', {
+                'weight_gan': self.weight_gan, 
+                'weight_percept': self.weight_percept, 
+                'only_uorf_training': 0 if self.current_epoch < self.opt.gan_train_epoch else 1,
+                'gan_training': 1 if self.current_epoch < self.opt.gan_train_epoch + self.opt.gan_in else 0,
+                'coarse_training': 1 if self.current_epoch < self.opt.coarse_epoch else 0,
+                'decoder_locality': 1 if self.current_epoch < self.opt.no_locality_epoch else 0,
+                }, prog_bar=False, rank_zero_only=True)
 
 
     def on_epoch_end(self) -> None:
@@ -188,9 +199,9 @@ class uorfGanModel(pl.LightningModule):
 
             # Average gradients
             avg_grad_plot = make_average_gradient_plot(chain(
-                self.netEncoder.parameters(), 
-                self.netSlotAttention.parameters(), 
-                self.netDecoder.parameters())
+                self.netEncoder.named_parameters(), 
+                self.netSlotAttention.named_parameters(), 
+                self.netDecoder.named_parameters())
                 )
 
             tensorboard.add_figure(
@@ -198,39 +209,41 @@ class uorfGanModel(pl.LightningModule):
                 avg_grad_plot
             )
 
-            # Compute visuals from batched raw data
-            b_masked_raws, b_unmasked_raws, b_z_vals, b_ray_dir, b_attn = raw_data
-            B, K, N, D, H, W, _ = b_masked_raws.shape
-            
-            # only display first batch
-            for k in range(K):
-                # Render images from masked raws
-                raws = b_masked_raws[0][k]
-                raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-                z_vals, ray_dir = b_z_vals[0], b_ray_dir[0]
-                rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
-                rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-                imgs_recon = rendered * 2 - 1
-
-                for i in range(N):
-                    tensorboard.add_image(f"masked_{k}_{i}", tensor2im(imgs_recon[i]))
+            with torch.no_grad():
+                # Compute visuals from batched raw data
+                b_masked_raws, b_unmasked_raws, b_z_vals, b_ray_dir, b_attn = raw_data
+                B, K, N, D, H, W, _ = b_masked_raws.shape
                 
-                # Render images from unmasked raws
-                raws = b_unmasked_raws[0][k]
-                raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
-                z_vals, ray_dir = b_z_vals[0], b_ray_dir[0]
-                rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
-                rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
-                imgs_recon = rendered * 2 - 1
+                # only display first batch
+                for k in range(K):
+                    # Render images from masked raws
+                    raws = b_masked_raws[0][k]
+                    raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+                    z_vals, ray_dir = b_z_vals[0], b_ray_dir[0]
+                    rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
+                    rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+                    imgs_recon = rendered * 2 - 1
 
-                for i in range(N):
-                    tensorboard.add_image(f"unmasked_{k}_{i}", tensor2im(imgs_recon[i]))
+                    for i in range(N):
+                        tensorboard.add_image(f"masked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
+                    
+                    # Render images from unmasked raws
+                    raws = b_unmasked_raws[0][k]
+                    raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
+                    z_vals, ray_dir = b_z_vals[0], b_ray_dir[0]
+                    rgb_map, depth_map, _ = raw2outputs(raws, z_vals, ray_dir)
+                    rendered = rgb_map.view(N, H, W, 3).permute([0, 3, 1, 2])  # Nx3xHxW
+                    imgs_recon = rendered * 2 - 1
 
-                    # Render reconstructed images (whole scene)
-                    tensorboard.add_image(f"recon_{k}_{i}", tensor2im(imgs_recon[i]))
+                    for i in range(N):
+                        tensorboard.add_image(f"unmasked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
 
-                # Render attention
-                tensorboard.add_image(f"attn_{k}", tensor2im(b_attn[0][k]*2 - 1 ))
+                        # Render reconstructed images (whole scene)
+                        tensorboard.add_image(f"recon/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
+
+                    # Render attention
+                    b_attn = b_attn.view(B, K, 1, self.opt.input_size, self.opt.input_size)
+                    tensorboard.add_image(f"attn/{k}", tensor2im(b_attn[0][k]*2 - 1 ).transpose(2, 0, 1))
 
 
     def training_step(self, batch, batch_idx):
@@ -296,16 +309,23 @@ class uorfGanModel(pl.LightningModule):
                 'loss_gan': loss_gan.cpu().item(), 
                 'loss_recon': loss_recon.cpu().item(),
                 'loss_percept': loss_perc.cpu().item(),
-                }, prog_bar=True)
+                }, prog_bar=True, rank_zero_only=True)
 
-            if self.global_step % self.opt.display_freq == 0:
-                self.log_visualizations(raw_data=raw_data)
+            if (self.global_step) % self.opt.display_freq == 0:
+                self.log_visualizations(imgs, imgs_reconstructed, raw_data=raw_data)
+                pass
 
 
     def optimize_discriminator(self, batch, batch_idx):
         # Forward batch
         imgs, imgs_rendered, _ = self(batch)
         imgs_reconstructed = imgs_rendered * 2 - 1
+
+        # Combine batches and number of imgs in scene 
+        B, S, C, H, W = imgs.shape
+        imgs = imgs.view(B*S, C, H, W)
+        imgs_rendered = imgs_rendered.view(B*S, C, H, W)
+        imgs_reconstructed = imgs_reconstructed.view(B*S, C, H, W)
 
         toggle_grad(self.netDisc, True)
         fake_pred = self.netDisc(imgs_reconstructed)
