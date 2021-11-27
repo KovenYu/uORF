@@ -22,7 +22,7 @@ if __name__=='__main__':
     lr_monitor = LearningRateMonitor(logging_interval='step')
     trainer = pl.Trainer(
         gpus=opt.gpus,
-        strategy="ddp_spawn", # ddp_spawn
+        strategy="ddp", # ddp_spawn
         max_epochs=opt.niter + opt.niter_decay + 1,
         callbacks=[lr_monitor])
 
