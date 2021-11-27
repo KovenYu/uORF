@@ -14,7 +14,7 @@ def parse_custom_options():
     parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
     parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data')
     parser.add_argument('--batch_size', type=int, default=1, help='input batch size')
-    parser.add_argument('--load_size', type=int, default=286, help='scale images to this size')
+    parser.add_argument('--load_size', type=int, default=128, help='scale images to this size')
     parser.add_argument('--max_dataset_size', type=int, default=float("inf"), help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
     # additional parameters
     parser.add_argument('--custom_lr', action='store_true', help='Custom lr(per step) scheduler for slot model. Currently hack.')
@@ -24,8 +24,8 @@ def parse_custom_options():
     # MultiscenesDataset options
     ##########
 
-    parser.add_argument('--n_scenes', type=int, default=1000, help='dataset length is #scenes')
-    parser.add_argument('--n_img_each_scene', type=int, default=10, help='for each scene, how many images to load in a batch')
+    parser.add_argument('--n_scenes', type=int, default=5000, help='dataset length is #scenes')
+    parser.add_argument('--n_img_each_scene', type=int, default=4, help='for each scene, how many images to load in a batch')
     parser.add_argument('--no_shuffle', action='store_true')
     parser.add_argument('--mask_size', type=int, default=128)
 
