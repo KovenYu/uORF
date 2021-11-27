@@ -9,12 +9,14 @@ class MultiscenesDataModule(pl.LightningDataModule):
     def __init__(self, opt):
         self.opt = opt
     
-    def prepare_data(self):
-        print('Fetching train dataset ...')
-        self.train_dataset = MultiscenesDataset(self.opt, is_train=True)
+    def setup(self, stage = None):
+        if stage in (None, 'fit'):
+            print('Fetching train dataset ...')
+            self.train_dataset = MultiscenesDataset(self.opt, is_train=True)
 
-        print('Fetching test dataset...')
-        self.test_dataset = MultiscenesDataset(self.opt, is_train=False)
+        if stage in (None, 'test'):
+            print('Fetching test dataset...')
+            self.test_dataset = MultiscenesDataset(self.opt, is_train=False)
     
     @staticmethod
     def collate_fn_batches(data):
@@ -46,7 +48,7 @@ class MultiscenesDataModule(pl.LightningDataModule):
             shuffle=not self.opt.serial_batches,
             num_workers=int(self.opt.num_threads),
             collate_fn = self.collate_fn_batches,
-            persistent_workers=True
+            persistent_workers=self.opt.num_threads > 0
         )
 
     
@@ -57,5 +59,5 @@ class MultiscenesDataModule(pl.LightningDataModule):
             shuffle=not self.opt.serial_batches,
             num_workers=int(self.opt.num_threads),
             collate_fn = self.collate_fn_batches,
-            persistent_workers=True
+            persistent_workers=self.opt.num_threads > 0
         )
