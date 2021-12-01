@@ -32,6 +32,9 @@ bash scripts/train_clevr_567.sh ../data/1200shape_50bg
 Training takes ~1 day on eight V100 for Room-Diverse.
 During training, visualization will be sent to the `lightning-logs` directory and can be accessed with tensorboard.
 
+If you want to specify the GPUs to use, add the `--gpus` flag to the training script.
+The argument is parsed as string, see all possibilities in the pytorch-lightning [docs](https://pytorch-lightning.readthedocs.io/en/latest/advanced/multi_gpu.html#select-gpu-devices).
+
 ## Bibtex
 ```
 @article{yu2021unsupervised
