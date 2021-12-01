@@ -108,7 +108,6 @@ class uorfGanModel(pl.LightningModule):
             W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
             frus_nss_coor = frus_nss_coor.view([B, S*D*H*W, 3])
             z_vals, ray_dir =  z_vals.view([B, S*H*W, D]), ray_dir.view([B, S*H*W, 3])
-            imgs = imgs.view(B, S, C, H, W)
 
         # Use part of image for finer training
         else:
@@ -138,20 +137,14 @@ class uorfGanModel(pl.LightningModule):
         sampling_coor_fg = frus_nss_coor[:, None, ...].expand(-1, K - 1, -1, -1)  # B×(K-1)xPx3
         sampling_coor_bg = frus_nss_coor  # B×Px3
 
-        """
-        print('Before decoder shapes:', 
-            "sampling_coor_fg", sampling_coor_fg.shape, "\n", 
-            "sampling_coor_bg", sampling_coor_bg.shape, "\n",
-            "z_slots", z_slots.shape, "\n",
-            "nss2cam0", nss2cam0.shape, "\n")
-        """
-
         # Run decoder
-        W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
         raws, masked_raws, unmasked_raws, maks = self.netDecoder(
             sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0)  
         # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4,  (Kx(NxDxHxW)x1 <- masks, not needed)
 
+        # Reshape for further processing
+        W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
+        imgs = imgs.view(B, S, C, H, W)
         raws = raws.view([B, N, D, H, W, 4]).permute([0, 1, 3, 4, 2, 5]).flatten(start_dim=1, end_dim=3)  # B×(NxHxW)xDx4
         masked_raws = masked_raws.view([B, K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([B, K, N, D, H, W, 4])
@@ -192,7 +185,6 @@ class uorfGanModel(pl.LightningModule):
 
 
     def log_visualizations(self, imgs: torch.Tensor, imgs_reconstructed: torch.Tensor, raw_data) -> None:
-
         # only tensorboard supported
         if self.trainer.is_global_zero and isinstance(self.logger, TensorBoardLogger):
             tensorboard = self.logger.experiment
@@ -214,7 +206,7 @@ class uorfGanModel(pl.LightningModule):
                 b_masked_raws, b_unmasked_raws, b_z_vals, b_ray_dir, b_attn = raw_data
                 B, K, N, D, H, W, _ = b_masked_raws.shape
                 
-                # only display first batch
+                # iterate slots, only display first batch
                 for k in range(K):
                     # Render images from masked raws
                     raws = b_masked_raws[0][k]
@@ -226,7 +218,7 @@ class uorfGanModel(pl.LightningModule):
 
                     for i in range(N):
                         tensorboard.add_image(f"masked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
-                    
+
                     # Render images from unmasked raws
                     raws = b_unmasked_raws[0][k]
                     raws = raws.permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
@@ -244,6 +236,12 @@ class uorfGanModel(pl.LightningModule):
                     # Render attention
                     b_attn = b_attn.view(B, K, 1, self.opt.input_size, self.opt.input_size)
                     tensorboard.add_image(f"attn/{k}", tensor2im(b_attn[0][k]*2 - 1 ).transpose(2, 0, 1))
+
+                # iterate scenes
+                for s in range(N):
+                    # Images from forward pass
+                    tensorboard.add_image(f"out_imgs/{s}", tensor2im(imgs[s]).transpose(2, 0, 1))
+                    tensorboard.add_image(f"out_imgs_recon/{s}", tensor2im(imgs_reconstructed[s]).transpose(2, 0, 1))
 
 
     def training_step(self, batch, batch_idx):
@@ -278,7 +276,7 @@ class uorfGanModel(pl.LightningModule):
         imgs, imgs_rendered, raw_data = self(batch)
         imgs_reconstructed = imgs_rendered * 2 - 1
 
-        # Combine batches and number of imgs in scene 
+        # Combine batches and number of imgs in scene
         B, S, C, H, W = imgs.shape
         imgs = imgs.view(B*S, C, H, W)
         imgs_rendered = imgs_rendered.view(B*S, C, H, W)
@@ -313,7 +311,6 @@ class uorfGanModel(pl.LightningModule):
 
             if (self.global_step) % self.opt.display_freq == 0:
                 self.log_visualizations(imgs, imgs_reconstructed, raw_data=raw_data)
-                pass
 
 
     def optimize_discriminator(self, batch, batch_idx):
