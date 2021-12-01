@@ -27,6 +27,3 @@ def make_average_gradient_plot(named_parameter_chain) -> matplotlib.figure.Figur
 
     return fig
     
-
-
-    
