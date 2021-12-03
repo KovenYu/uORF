@@ -18,6 +18,7 @@ class uorfGanModel(pl.LightningModule):
 
     def __init__(self, opt):
         super().__init__()
+        self.save_hyperparameters() # Save hyperparameters
         self.opt = opt
 
         # pytorch lightning setting
@@ -82,7 +83,6 @@ class uorfGanModel(pl.LightningModule):
 
         # Run encoder on first images, then flatten H×W to F
         first_imgs = imgs[:, 0, ...]  # B×C×H×W
-
         feature_map = self.netEncoder(F.interpolate(
             first_imgs, size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
         feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxFxC
@@ -364,7 +364,7 @@ class uorfGanModel(pl.LightningModule):
                         tensorboard.add_image(f"recon/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
 
                     # Render attention
-                    b_attn = b_attn.view(B, K, 1, self.opt.input_size, self.opt.input_size)
+                    b_attn = b_attn.view(B, K, 1, H, W)
                     tensorboard.add_image(f"attn/{k}", tensor2im(b_attn[0][k]*2 - 1 ).transpose(2, 0, 1))
 
                 # iterate scenes
