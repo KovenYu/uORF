@@ -1,9 +1,9 @@
 import pytorch_lightning as pl
 import torch
-from custom.options import parse_custom_options
-from custom.test_model import uorfTestGanModel
+from util.options import parse_custom_options
+from models.test_model import uorfTestGanModel
 
-from custom.data import MultiscenesDataModule
+from data import MultiscenesDataModule
 
 if __name__=='__main__':
     print('Parsing options...')

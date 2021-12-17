@@ -1,11 +1,10 @@
 import pytorch_lightning as pl
-from custom.options import parse_custom_options
+from util.options import parse_custom_options
 
-from options.train_options import TrainOptions
 from pytorch_lightning.callbacks import LearningRateMonitor
 
-from custom.model import uorfGanModel
-from custom.data import MultiscenesDataModule
+from models.train_model import uorfGanModel
+from data import MultiscenesDataModule
 
 if __name__=='__main__':
     print('Parsing options...')

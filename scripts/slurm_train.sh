@@ -21,4 +21,4 @@ source ~/.bashrc
 conda activate uorf-3090
 
 echo 'Start training'
-exec custom/train_room_diverse.sh
+exec custom/train.sh
