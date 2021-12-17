@@ -50,6 +50,7 @@ def parse_custom_options():
     ###########
     # Test options
     #########
+    parser.add_argument('--checkpoint', type=str, default='./checkpoints', help='models are loaded from here')
 
     parser.add_argument('--results_dir', type=str, default='./results/', help='saves results here.')
     parser.add_argument('--aspect_ratio', type=float, default=1.0, help='aspect ratio of result images')
@@ -96,5 +97,25 @@ def parse_custom_options():
     parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                         dataset_mode='multiscenes', niter=240, custom_lr=True, lr_policy='warmup')
 
+    opt = parser.parse_args()
+    print_options(parser, opt)
 
-    return parser.parse_args()
+    return opt
+
+
+def print_options(parser, opt):
+    """Print and save options
+
+    It will print both current options and default values(if different).
+    It will save options into a text file / [checkpoints_dir] / opt.txt
+    """
+    message = ''
+    message += '----------------- Options ---------------\n'
+    for k, v in sorted(vars(opt).items()):
+        comment = ''
+        default = parser.get_default(k)
+        if v != default:
+            comment = '\t[default: %s]' % str(default)
+        message += '{:>25}: {:<30}{}\n'.format(str(k), str(v), comment)
+    message += '----------------- End -------------------'
+    print(message)

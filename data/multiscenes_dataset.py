@@ -59,6 +59,7 @@ class MultiscenesDataset(BaseDataset):
             scene_filenames = [x for x in filenames if 'sc{:04d}'.format(i) in x]
             self.scenes.append(scene_filenames)
 
+
     def _transform(self, img):
         img = TF.resize(img, (self.opt.load_size, self.opt.load_size))
         img = TF.to_tensor(img)
@@ -79,10 +80,13 @@ class MultiscenesDataset(BaseDataset):
         """
         scene_idx = index
         scene_filenames = self.scenes[scene_idx]
+
+        # Shuffle images from one scene
         if self.is_train and not self.opt.no_shuffle:
             filenames = random.sample(scene_filenames, self.n_img_each_scene)
         else:
             filenames = scene_filenames[:self.n_img_each_scene]
+
         rets = []
         for path in filenames:
             img = Image.open(path).convert('RGB')

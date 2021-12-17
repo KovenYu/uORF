@@ -18,6 +18,7 @@ class uorfGanModel(pl.LightningModule):
 
     def __init__(self, opt):
         super().__init__()
+        self.save_hyperparameters() # Save hyperparameters
         self.opt = opt
 
         # pytorch lightning setting
@@ -82,7 +83,6 @@ class uorfGanModel(pl.LightningModule):
 
         # Run encoder on first images, then flatten H×W to F
         first_imgs = imgs[:, 0, ...]  # B×C×H×W
-
         feature_map = self.netEncoder(F.interpolate(
             first_imgs, size=self.opt.input_size, mode='bilinear', align_corners=False))  # BxCxHxW
         feat = feature_map.flatten(start_dim=2).permute([0, 2, 1])  # BxFxC
@@ -190,7 +190,7 @@ class uorfGanModel(pl.LightningModule):
             if self.opt.custom_lr and self.opt.stage == 'coarse':
                 uorf_scheduler, _ = self.lr_schedulers()
                 uorf_scheduler.step()
-        
+
         else:
             # Train generator (uORF)
             if batch_idx % 2 == 0:
@@ -328,7 +328,8 @@ class uorfGanModel(pl.LightningModule):
 
             tensorboard.add_figure(
                 'gradients',
-                avg_grad_plot
+                avg_grad_plot,
+                global_step=self.global_step
             )
 
             with torch.no_grad():
@@ -347,7 +348,7 @@ class uorfGanModel(pl.LightningModule):
                     imgs_recon = rendered * 2 - 1
 
                     for i in range(N):
-                        tensorboard.add_image(f"masked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
+                        tensorboard.add_image(f"masked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1), global_step=self.global_step)
 
                     # Render images from unmasked raws
                     raws = b_unmasked_raws[0][k]
@@ -358,17 +359,17 @@ class uorfGanModel(pl.LightningModule):
                     imgs_recon = rendered * 2 - 1
 
                     for i in range(N):
-                        tensorboard.add_image(f"unmasked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
+                        tensorboard.add_image(f"unmasked/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1), global_step=self.global_step)
 
                         # Render reconstructed images (whole scene)
-                        tensorboard.add_image(f"recon/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1))
+                        tensorboard.add_image(f"recon/{k}_{i}", tensor2im(imgs_recon[i]).transpose(2, 0, 1), global_step=self.global_step)
 
                     # Render attention
-                    b_attn = b_attn.view(B, K, 1, self.opt.input_size, self.opt.input_size)
-                    tensorboard.add_image(f"attn/{k}", tensor2im(b_attn[0][k]*2 - 1 ).transpose(2, 0, 1))
+                    b_attn = b_attn.view(B, K, 1, H, W)
+                    tensorboard.add_image(f"attn/{k}", tensor2im(b_attn[0][k]*2 - 1 ).transpose(2, 0, 1), global_step=self.global_step)
 
                 # iterate scenes
                 for s in range(N):
                     # Images from forward pass
-                    tensorboard.add_image(f"out_imgs/{s}", tensor2im(imgs[s]).transpose(2, 0, 1))
-                    tensorboard.add_image(f"out_imgs_recon/{s}", tensor2im(imgs_reconstructed[s]).transpose(2, 0, 1))
+                    tensorboard.add_image(f"out_imgs/{s}", tensor2im(imgs[s]).transpose(2, 0, 1), global_step=self.global_step)
+                    tensorboard.add_image(f"out_imgs_recon/{s}", tensor2im(imgs_reconstructed[s]).transpose(2, 0, 1), global_step=self.global_step)
