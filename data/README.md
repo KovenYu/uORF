@@ -84,3 +84,15 @@ Changing random seeds might provide a better initialization and thus bypass the 
 and you might consider tweaking hyper-parameters related to learning rate scheduler, such as learning rate ```--lr```, its decay speed ```--attn_decay_steps``` and warm-up steps ```--warmup_steps```.
 Adding some noise to foreground decoder outputs could also help. 
 Hopefully future research can shed light on this problem and solve it once for all.
+
+
+## Generate your own dataset
+
+We provide an example generation assets and codebase at 
+[here](https://office365stanford-my.sharepoint.com/:u:/g/personal/koven_stanford_edu/Ec-vEV0XMxBGpWgx1y6kSkIBOiY_AelngVf2qk2zAHgb_A?e=2gIqGv) 
+for the object shape models from ShapeNet and 
+[here](https://office365stanford-my.sharepoint.com/:u:/g/personal/koven_stanford_edu/EX0Q_Wmv8EBPqPboJ2QWAqEB18lOQ6aKU2k84tax1YP3Hw?e=lLr16K) 
+for the codebase and textures of the Room Diverse dataset.
+
+In ``/image_generation/scripts`` run ``generate_1200shape_50bg.sh`` and then ``render_1200_shapes.sh``.
+Don't forget to change the root directory in both scripts.

@@ -19,7 +19,7 @@ or install the packages listed therein. Please make sure you have NVIDIA drivers
 
 ## Data and model
 Please download datasets and models [here](https://office365stanford-my.sharepoint.com/:f:/g/personal/koven_stanford_edu/Et9SOVcOxOdHilaqfq4Y3PsBsiPGW6NGdbMd2i3tRSB5Dg?e=WRrXIh).
-If you want to train on your own dataset, please refer to this [README](data/README.md).
+If you want to train on your own dataset or generate your own dataset similar to our used ones, please refer to this [README](data/README.md).
 
 ## Evaluation
 We assume you have a GPU.
