@@ -49,7 +49,7 @@ During training, visualization will be sent to [localhost:8077](http://localhost
 
 ## Bibtex
 ```
-@inproceedings{yu2022unsupervised
+@inproceedings{yu2022unsupervised,
   author    = {Yu, Hong-Xing and Guibas, Leonidas J. and Wu, Jiajun},
   title     = {Unsupervised Discovery of Object Radiance Fields},
   booktitle = {International Conference on Learning Representations},
