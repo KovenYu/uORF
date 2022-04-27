@@ -103,7 +103,7 @@ class Decoder(nn.Module):
         self.b_before = nn.Sequential(*before_skip)
         self.b_after = nn.Sequential(*after_skip)
 
-    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform):
+    def forward(self, sampling_coor_bg, sampling_coor_fg, z_slots, fg_transform, dens_noise=0.):
         """
         1. pos emb by Fourier
         2. for each slot, decode all points from coord and slot feature
@@ -112,6 +112,7 @@ class Decoder(nn.Module):
             sampling_coor_fg: (K-1)xPx3
             z_slots: KxC, K: #slots, C: #feat_dim
             fg_transform: If self.fixed_locality, it is 1x4x4 matrix nss2cam0, otherwise it is 1x3x3 azimuth rotation of nss2cam0
+            dens_noise: Noise added to density
         """
         K, C = z_slots.shape
         P = sampling_coor_bg.shape[0]
@@ -151,7 +152,7 @@ class Decoder(nn.Module):
         raw_masks = F.relu(all_raws[:, :, -1:], True)  # KxPx1
         masks = raw_masks / (raw_masks.sum(dim=0) + 1e-5)  # KxPx1
         raw_rgb = (all_raws[:, :, :3].tanh() + 1) / 2
-        raw_sigma = raw_masks
+        raw_sigma = raw_masks + dens_noise * torch.randn_like(raw_masks)
 
         unmasked_raws = torch.cat([raw_rgb, raw_sigma], dim=2)  # KxPx4
         masked_raws = unmasked_raws * masks

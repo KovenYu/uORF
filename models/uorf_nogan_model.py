@@ -48,6 +48,7 @@ class uorfNoGanModel(BaseModel):
         parser.add_argument('--near_plane', type=float, default=6)
         parser.add_argument('--far_plane', type=float, default=20)
         parser.add_argument('--fixed_locality', action='store_true', help='enforce locality in world space instead of transformed view space')
+        parser.add_argument('--dens_noise', type=float, default=1., help='Noise added to density may help in mitigating rank collapse')
 
         parser.set_defaults(batch_size=1, lr=3e-4, niter_decay=0,
                             dataset_mode='multiscenes', niter=1200, custom_lr=True, lr_policy='warmup')
@@ -127,6 +128,7 @@ class uorfNoGanModel(BaseModel):
     def forward(self, epoch=0):
         """Run forward pass. This will be called by both functions <optimize_parameters> and <test>."""
         self.weight_percept = self.opt.weight_percept if epoch >= self.opt.percept_in else 0
+        dens_noise = self.opt.dens_noise if (epoch <= self.opt.percept_in and self.opt.fixed_locality) else 0
         self.loss_recon = 0
         self.loss_perc = 0
         dev = self.x[0:1].device
@@ -166,7 +168,7 @@ class uorfNoGanModel(BaseModel):
         sampling_coor_bg = frus_nss_coor  # Px3
 
         W, H, D = self.opt.supervision_size, self.opt.supervision_size, self.opt.n_samp
-        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
+        raws, masked_raws, unmasked_raws, masks = self.netDecoder(sampling_coor_bg, sampling_coor_fg, z_slots, nss2cam0, dens_noise=dens_noise)  # (NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x4, Kx(NxDxHxW)x1
         raws = raws.view([N, D, H, W, 4]).permute([0, 2, 3, 1, 4]).flatten(start_dim=0, end_dim=2)  # (NxHxW)xDx4
         masked_raws = masked_raws.view([K, N, D, H, W, 4])
         unmasked_raws = unmasked_raws.view([K, N, D, H, W, 4])
