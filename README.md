@@ -1,4 +1,4 @@
-# Unsupervised Discovery of Object Radiance Fields
+# [ICLR22] Unsupervised Discovery of Object Radiance Fields
 by [Hong-Xing Yu](https://kovenyu.com), [Leonidas J. Guibas](https://geometry.stanford.edu/member/guibas/) and [Jiajun Wu](https://jiajunwu.com/) from Stanford University.
 
 ![teaser](teaser.gif)
