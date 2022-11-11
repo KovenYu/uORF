@@ -76,7 +76,7 @@ class uorfNoGanModel(BaseModel):
                             ['unmasked_slot{}_view{}'.format(k, i) for k in range(opt.num_slots) for i in range(n)] + \
                             ['slot{}_attn'.format(k) for k in range(opt.num_slots)]
         self.model_names = ['Encoder', 'SlotAttention', 'Decoder']
-        self.perceptual_net = get_perceptual_net().cuda()
+        self.perceptual_net = get_perceptual_net().to(self.device)
         self.vgg_norm = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         render_size = (opt.render_size, opt.render_size)
         frustum_size = [self.opt.frustum_size, self.opt.frustum_size, self.opt.n_samp]
