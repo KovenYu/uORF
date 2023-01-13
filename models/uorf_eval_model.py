@@ -82,7 +82,7 @@ class uorfEvalModel(BaseModel):
         self.netDecoder = networks.init_net(Decoder(n_freq=opt.n_freq, input_dim=6*opt.n_freq+3+z_dim, z_dim=opt.z_dim, n_layers=opt.n_layer, locality=False,
                                                     locality_ratio=opt.obj_scale/opt.nss_scale, fixed_locality=opt.fixed_locality), gpu_ids=self.gpu_ids, init_type='xavier')
         self.L2_loss = torch.nn.MSELoss()
-        self.LPIPS_loss = lpips.LPIPS().cuda()
+        self.LPIPS_loss = lpips.LPIPS().to(self.device)
 
     def setup(self, opt):
         """Load and print networks; create schedulers
